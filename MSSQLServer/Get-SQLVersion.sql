@@ -1,1 +1,1 @@
-Select @@version
+Select @@version as version
