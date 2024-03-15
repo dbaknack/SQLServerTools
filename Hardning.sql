@@ -220,8 +220,3 @@ begin
 
 	set @ruid_role = @ruid_role + 1
 end
-
-
-
-
-
