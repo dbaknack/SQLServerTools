@@ -16,83 +16,128 @@ use tempdb
 --			at the time of creation.
 -- NOTE:	any account included in sessionsconfig can be added to manually set a limit to a given account
 
-declare @SessionLimitPerc	varchar(max) = '0.40'
-declare @ExcusionTable		varchar(max) = '
-	(''NT SERVICE\SQLTELEMETRY'')'
-declare @SessionConfig		varchar(max)= '
-	(''sa'','+@SessionLimitPerc+')
-'
+declare @SessionLimitPerc	varchar(max) = '0.30'
+declare @ExcusionTable		varchar(max) = '(''NT SERVICE\SQLTELEMETRY''),
+											(''NT SERVICE\SQLSERVERAGENT''),
+											(''nosa'')'
+declare @SessionConfig		varchar(max) = '(''DEVBOX01\AbrahamHernandez'','+@SessionLimitPerc+')'
 
 if exists (select 1 from sys.tables where name = 'configTable')
 begin
 	drop table configTable
 end
-
-
 create table configTable  (
 	RecID				int identity(1,1),
 	LoginName			varchar(max)		null,
-	SessionLimitPerc	decimal(4,3)		null
+	SessionLimitPerc	decimal(4,2)		null
 )
 
+if exists (select 1 from sys.tables where name = 'exclusion')
+begin
+	drop table exclusion
+end
+create table exclusion  (
+	RecID				int identity(1,1),
+	LoginName			varchar(max)		null
+)
 
 declare @cmd_insertconfig varchar(max) = '
 insert into tempdb.dbo.configTable
 values'+@SessionConfig+''
 
+declare @cmd_insertexclusion varchar(max) = '
+insert into tempdb.dbo.exclusion
+values'+@ExcusionTable+''
+
 exec (@cmd_insertconfig)
+exec (@cmd_insertexclusion)
 
 
-select ct.SessionLimitPerc,*
-from
-(
-SELECT 
-	LoginName			= login_name,
-	TotalSessions		= count(login_name),
-	AdditionalSession	= ((count(login_name)) * cast(@SessionLimitPerc as decimal(4,3))),
-	TotalSessionLimit	= case
-		when login_name not in ('NT SERVICE\SQLTELEMETRY')
-			then ceiling(((count(login_name)) *cast(@SessionLimitPerc as decimal(4,3)))) + (count(login_name))
-			else (count(login_name))
-		end
-FROM 
-    sys.dm_exec_sessions
-	group by login_name
-) sessions
-join configTable ct on ct.LoginName = sessions.LoginName
-
-SELECT 
-    session_id,
-    login_name,
-    host_name,
-    program_name,
-    login_time,
-    status
-FROM 
-    sys.dm_exec_sessions
-
-declare @counterSessionsTotal int = (SELECT count(*) FROM sys.dm_exec_sessions)
-select CEILING((@counterSessionsTotal * .20) + @counterSessionsTotal)
-
-
-if exists (select 1 from sys.objects where object_id = object_id('tempdb..#configurationItems'))
+if exists (select 1 from sys.tables where name = 'computedResults')
 begin
-	drop table #configurationItems
+	drop table computedResults
 end
-
-create table tempdb.#configurationItems(
-	recid			int identity(1,1),
-	name			varchar(50)		null,
-	minimun			varchar(max)	null,
-	maximum			varchar(max)	null,
-	config_value	varchar(10)		null,
-	run_value		varchar(10)		null
+create table computedResults  (
+	RecID				int identity(1,1),
+	LoginName			varchar(max)		null,
+	TotalSessions			int		null,
+	TotalExtraSessions			int		null,
+	SessionsLimited			int		null,
+	IncreaseByPercent	decimal(4,2) null,
+	SessionLimit int null
 )
 
-EXEC SP_CONFIGURE 'show advanced options', '1'; 
-RECONFIGURE WITH OVERRIDE; 
+insert into computedResults
+select
+	sessions.LoginName,
+	sessions.TotalSessions,
+	TotalExtraSessions = case when ct.SessionLimitPerc is null
+		then 0 * sessions.TotalSessions
+		else ceiling(ct.SessionLimitPerc * sessions.TotalSessions)
+	end,
+	SessionsLimited = case when ex.LoginName is not null
+		then 0 
+		else 1
+	end,
+	[IncreaseByPercent] = case when ct.SessionLimitPerc is not null
+		then ct.SessionLimitPerc
+		else null
+	end,
+	SessionLimit = case when ct.loginname is null
+		then null
+		else ceiling(ct.SessionLimitPerc * sessions.TotalSessions) + sessions.TotalSessions
 
-insert into #configurationItems
-EXEC SP_CONFIGURE
+	end
+from
+(
+	select
+		LoginName,
+		TotalSessions
+	from(
+		select 
+			LoginName		= login_name,
+			TotalSessions	= count(login_name)
+		from sys.dm_exec_sessions 
+		group by login_name
+	) root
 
-select * from #configurationItems
+) sessions
+left outer join configTable ct on ct.LoginName = sessions.LoginName
+left outer join exclusion ex on ex.LoginName = sessions.LoginName
+declare @env_table table (
+	domain_name		varchar(max),
+	hostname		varchar(max),
+	instancename	varchar(max)
+)
+
+
+declare @instancename nvarchar(128)
+set @instancename = @@servername
+
+if charindex('\', @instancename) > 0
+    set @instancename = substring(@instancename, charindex('\', @instancename) + 1, len(@instancename))
+else
+    set @instancename = convert(nvarchar(128), serverproperty('machinename'))
+	
+insert into @env_table
+select
+	convert(varchar(max),default_domain()),
+	convert(varchar(max),serverproperty('machinename')),
+	@instancename
+
+select
+	[RecID],
+	[DomainName]	= (select domain_name from @env_table),
+	[HostName]		= (select hostname from @env_table),
+	[InstanceName]	= (select instancename from @env_table),
+	LoginName,
+	TotalSessions,
+	TotalExtraSessions,
+	SessionsLimited,
+	IncreaseByPercent,
+	SessionLimit
+from computedResults
+
+drop table configTable
+drop table exclusion
+drop table computedResults
