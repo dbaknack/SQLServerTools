@@ -1,25 +1,24 @@
 if($null -eq (Get-Module -Name 'PSCONNECT')){
     lr;  Import-Module .\PSCONNECT
+
+    $PSCONNECT_PARAMS = @{
+        SourceFolderName 	= "$env:HOMEPATH\Documents\Knowledge_Base\Sources_Library\PSCONNECT-Data"
+        SourceFileName		= "HOSTDATA.csv"
+    }    
+
+    #	Retrieve HostData:
+    #	Note:
+    #	entries in your file have a 'Enable' property
+    #	when 'True' the host will be available to connect to
+    #	when 'False' the host will not be avaible to connect to
+    #	when the All parameter value is true, all entries regardless of the Enable value are returned
+    #	when the All parameter value is false, only entries whos Enable value is true is returned
+    $PSCONNECT.GetHostData(@{ALL = $false}) | Format-Table -Autosize
+    
+}else{
+    Remove-Module PSCONNECT
+    Write-Host "[PSCONNECT]:: Removed." -f Cyan
 }
-
-$PSCONNECT_PARAMS = @{
-    SourceFolderName 	= "$env:HOMEPATH\Documents\Knowledge_Base\Sources_Library\PSCONNECT-Data"
-    SourceFileName		= "HOSTDATA.csv"
-}
-
-
-$REMEDITION_FOLDER  = ".\Remediation\"
-$FINDINGS_TABLE     = @(
-    [pscustomobject]@{id = "V-214043" ; Description = "Get replication xp configuration."}
-    [pscustomobject]@{id = "V-214041" ; Description = "Get external script configuration."}
-    [pscustomobject]@{id = "V-214040" ; Description = "Get remote data archive configuration."}
-    [pscustomobject]@{id = "V-214039" ; Description = "Get polybase configuration."}
-    [pscustomobject]@{id = "V-214038" ; Description = "Get hadoop configuration."}
-    [pscustomobject]@{id = "V-214037" ; Description = "Get remote connectivity configuration."}
-    [pscustomobject]@{id = "V-214036" ; Description = "Get user options configuration."}
-    [pscustomobject]@{id = "V-214035" ; Description = "Get ole automation procedures configuration."}
-    [pscustomobject]@{id = "V-214034" ; Description = "Get file stream configuration."}
-)
 
 if($null -eq $myCreds){
     $PSCONNECT = PSCONNECT @PSCONNECT_PARAMS
@@ -29,7 +28,6 @@ if($null -eq $myCreds){
 }
 
 $hostList = $PSCONNECT.GetHostData(@{ALL = $false}) | Select-Object "NamedInstance ",Enclave, HostName,InstanceName
-
 $newHostList = @()
 foreach($hostItem in $hostList){
     $newHostList += @{
@@ -37,119 +35,90 @@ foreach($hostItem in $hostList){
         HostName        = $hostItem.HostName
         isNamedInstance = $hostItem."NamedInstance "
         InstanceName    = $hostItem.InstanceName
-        params1         =@{
-            fromThisFolder      = $REMEDITION_FOLDER
-            givenTheseFindings  = $FINDINGS_TABLE
+        CheckConfig     =@{
+            DocumentationList = @{
+                p1 = @(
+                    "The table reveals that various features within the SQL Server instance on $($ENCLAVE) are disabled for security reasons."
+                    "Each property is marked as not approved for use, indicating a cautious approach towards mitigating potential vulnerabilities."
+                    "Disabling these features aligns with security best practices to reduce the risk of unauthorized access and data breaches."
+                )
+            }
+            fromThisFolder      = ".\Remediation\"
+            givenTheseFindings  = @(
+                [pscustomobject]@{id = "V-214043" ; Description = "Get replication xp configuration."}
+                [pscustomobject]@{id = "V-214041" ; Description = "Get external script configuration."}
+                [pscustomobject]@{id = "V-214040" ; Description = "Get remote data archive configuration."}
+                [pscustomobject]@{id = "V-214039" ; Description = "Get polybase configuration."}
+                [pscustomobject]@{id = "V-214038" ; Description = "Get hadoop configuration."}
+                [pscustomobject]@{id = "V-214037" ; Description = "Get remote connectivity configuration."}
+                [pscustomobject]@{id = "V-214036" ; Description = "Get user options configuration."}
+                [pscustomobject]@{id = "V-214035" ; Description = "Get ole automation procedures configuration."}
+                [pscustomobject]@{id = "V-214034" ; Description = "Get file stream configuration."}
+            )
             checkThisInstance   = @{instanceName = $hostItem.InstanceName;databaseName = "Master"}
+            Results = @()
         }
-    }
-}
-
-Function CompileResults {
-    param([hashtable]$fromSender)
-    begin{
-        $invokeUDFSQLCommandParams = @{
-            Instance        = $fromSender.CheckThisInstance.InstanceName
-            DatabaseName    = $fromSender.CheckThisInstance.DatabaseName
-            Query           = ''
-        }
-        $commandResults = @()
-    }
-    process{
-        foreach($finding in $fromSender.GivenTheseFindings){
-            try{
-                $scriptFile = Get-ChildItem -Path ("{0}{1}\" -f $fromSender.FromThisFolder,$finding.id) -Filter "*.sql"
-            }catch{
-                $error[0]
+        CheckRegistryPermissions = @{
+            DocumentationList = @{
+                p1 = @(
+                    "This section of the technical documentation outlines a group of registry-related extended stored procedures available within Microsoft SQL Server."
+                    "These procedures offer functionalities for managing Windows registry operations, such as adding, deleting, and enumerating"
+                    "registry keys and values. It's important to note that these procedures are not enabled by default unless specifically required."
+                )
             }
-            try{
-                $command = (Get-Content -Path $scriptFile.FullName) -join "`n"
-            }catch{
-                $error[0]
+            fromThisFolder      = ".\Remediation\"
+            givenTheseFindings  = @(
+                [pscustomobject]@{id = "V-214033" ; Description = "Get edit registry permissions."}
+            )
+            checkThisInstance   = @{instanceName = $hostItem.InstanceName;databaseName = "Master"}
+            Results = @()
+        }
+        CheckStoredProcedures = @{
+            DocumentationList = @{
+                p1 = @(
+                    "In certain situations, to provide required functionality, a DBMS needs to execute internal logic (stored procedures, functions, triggers, etc.)"
+                    "and/or external code modules with elevated privileges. However, if the privileges required for execution are at a higher level than the "
+                    "privileges assigned to organizational users invoking the functionality applications/programs, those users are indirectly provided with greater "
+                    "privileges than assigned by organizations."
+                )
             }
-            $invokeUDFSQLCommandParams.Query = $command
-            $commandResults += Invoke-UDFSQLCommand $invokeUDFSQLCommandParams
+            fromThisFolder      = ".\Remediation\"
+            givenTheseFindings  = @(
+                [pscustomobject]@{id = "V-214030" ; Description = "List of documented stored procedures."}
+            )
+            checkThisInstance   = @{instanceName = $hostItem.InstanceName;databaseName = "Master"}
+            Results = @()
+        }
+        CheckInstalledFeatures = @{
+            DocumentationList = @{
+                p1 = @(
+                    "Some DBMSs' installation tools may remove older versions of software automatically from the information system. In other cases, manual review "
+                    "and removal will be required. In planning installations and upgrades, organizations must include steps (automated, manual, or both) to "
+                    "identify and remove the outdated modules. "
+                )
+            }
+            fromThisFolder      = ".\Remediation\"
+            givenTheseFindings  = @(
+                [pscustomobject]@{id = "V-213993" ; Description = "List the installed features"}
+            )
+            Results = @()
         }
     }
-    end{
-        $totalEntries = ($commandResults.count) - 1
-        $cntr = 1
-        foreach($entry in 0..$totalEntries){
-            $commandResults[$entry].RecID = $cntr
-            $cntr++
-        }
-        return $commandResults
-    }
 }
-Function Get-SqlInstances{
 
-    Param($ServerName = [System.Net.Dns]::GetHostName())
-   
- 
-    $LocalInstances = @()
- 
-    [array]$Captions = Get-WmiObject win32_service -ComputerName $ServerName |
-      Where-Object {
-        $_.Name -match "mssql*" -and
-        $_.PathName -match "sqlservr.exe"
-      } |
-        ForEach-Object {$_.Caption}
- 
-    foreach ($Caption in $Captions) {
-      if ($Caption -eq "MSSQLSERVER") {
-        $LocalInstances += "MSSQLSERVER"
-      } else {
-        $Temp = $Caption |
-          ForEach-Object {$_.split(" ")[-1]} |
-          ForEach-Object {$_.trimStart("(")} |
-            ForEach-Object {$_.trimEnd(")")}
- 
-        $LocalInstances += "$ServerName\$Temp"
-      }
- 
-    }
- 
-     $instance_names_list = @()
-     $instance_ruid = 1
-    foreach($localinstance_name in $LocalInstances){
-      # if the instance name is not a named instance, this condition will be true
-      if($localinstance_name -match '(.*)\\(MSSQLSERVER)'){
-         $instance_names_list += [pscustomobject]@{
-          id = $instance_ruid
-          host_name = $ServerName
-          instance_type = 'unnamed'
-          instance_name = $matches[1]
-          }
-      }else{
-          $instance_names_list += [pscustomobject]@{
-              id = $instance_ruid
-              host_name = $ServerName
-              instance_type = 'named'
-              instance_name =  $localinstance_name
-          }
-      }
-      $instance_ruid = $instance_ruid + 1
-    }
-    $instance_names_list | Group-Object -Property host_name -AsHashTable
-}
-$p = @(
-    "The table reveals that various features within the SQL Server instance on $($ENCLAVE) are disabled for security reasons."
-    "Each property is marked as not approved for use, indicating a cautious approach towards mitigating potential vulnerabilities."
-    "Disabling these features aligns with security best practices to reduce the risk of unauthorized access and data breaches."
-)
-
-
-$ResultSet = @()
+# CHECK: configuration
 foreach($instance in $newHostList){
+    
     $instanceName = $instance.HostName
-    $databaseName = $instance.params1.checkThisInstance.databaseName
+    $databaseName = $instance.CheckConfig.checkThisInstance.databaseName
     if($instance.isNamedInstance -eq 'true'){
         $instanceName = "{0}\{1}" -f $instance.HostName,$instance.InstanceName
     }
-    foreach($finding in $instance.params1.givenTheseFindings){
-        $scriptFolder   =   ("{0}{1}\" -f $instance.params1.fromThisFolder,$finding.id)
+    Write-Host "[CHECK: configuration] - HostName: $($instance.HostName) - InstanceName: $instanceName" -ForegroundColor Cyan
+    foreach($finding in $instance.CheckConfig.givenTheseFindings){
+        $scriptFolder   =   ("{0}{1}\" -f $instance.CheckConfig.fromThisFolder,$finding.id)
         $scriptFile     =   (Get-ChildItem -Path $scriptFolder).BaseName
-        $ResultSet      +=  (Invoke-PSSQL @{
+        $instance.CheckConfig.Results      +=  (Invoke-PSSQL @{
             Session             =   Get-PSSession -Name $instance.HostName
             SQLScriptFolder     =   $scriptFolder 
             SQLScriptFile       =   $scriptFile
@@ -161,36 +130,96 @@ foreach($instance in $newHostList){
     }
 }
 
-$ResultSet | Format-Table -AutoSize
-
-
-$PARAMS = @{
-    fromThisFolder      = $REMEDITION_FOLDER
-    givenTheseFindings  = @(
-        [pscustomobject]@{id = "V-214033" ; Description = "Get edit registry permissions."}
-    )
-    checkThisInstance   = @{instanceName = ".";databaseName = "Master"}
-}
-(Invoke-PSSQL @{
-    Session             =   Get-PSSession -Name $instance.HostName
-    SQLScriptFolder     =   $scriptFolder 
-    SQLScriptFile       =   $scriptFile
-    ConnectionParams    =   @{
-        InstanceName    =   $instanceName 
-        DatabaseName    =   $databaseName 
+# CHECK: Registry Permissions
+foreach($instance in $newHostList){
+    
+    $instanceName = $instance.HostName
+    $databaseName = $instance.CheckRegistryPermissions.checkThisInstance.databaseName
+    if($instance.isNamedInstance -eq 'true'){
+        $instanceName = "{0}\{1}" -f $instance.HostName,$instance.InstanceName
     }
-})
-$p = @(
-    "This section of the technical documentation outlines a group of registry-related extended stored procedures available within Microsoft SQL Server."
-    "These procedures offer functionalities for managing Windows registry operations, such as adding, deleting, and enumerating"
-    "registry keys and values. It's important to note that these procedures are not enabled by default unless specifically required."
-)
-$ResultSet = CompileResults $PARAMS
-$ResultSet | Format-Table -AutoSize
+    Write-Host "[CHECK: Registry Permissions] - HostName: $($instance.HostName) - InstanceName: $instanceName" -ForegroundColor Cyan
+
+    foreach($finding in $instance.CheckRegistryPermissions.givenTheseFindings){
+        $scriptFolder   =   ("{0}{1}\" -f $instance.CheckRegistryPermissions.fromThisFolder,$finding.id)
+        $scriptFile     =   (Get-ChildItem -Path $scriptFolder).BaseName
+        $instance.CheckRegistryPermissions.Results +=  (Invoke-PSSQL @{
+            Session             =   Get-PSSession -Name $instance.HostName
+            SQLScriptFolder     =   $scriptFolder 
+            SQLScriptFile       =   $scriptFile
+            ConnectionParams    =   @{
+                InstanceName    =   $instanceName 
+                DatabaseName    =   $databaseName 
+            }
+        }).rows
+    }
+}
+
+# CHECK : CheckStoredProcedures
+foreach($instance in $newHostList){
+    
+    $instanceName = $instance.HostName
+    $databaseName = $instance.CheckStoredProcedures.checkThisInstance.databaseName
+    if($instance.isNamedInstance -eq 'true'){
+        $instanceName = "{0}\{1}" -f $instance.HostName,$instance.InstanceName
+    }
+    Write-Host "[CHECK : CheckStoredProcedures] - HostName: $($instance.HostName) - InstanceName: $instanceName" -ForegroundColor Cyan
+
+    foreach($finding in $instance.CheckStoredProcedures.givenTheseFindings){
+        $scriptFolder   =   ("{0}{1}\" -f $instance.CheckStoredProcedures.fromThisFolder,$finding.id)
+        $scriptFile     =   (Get-ChildItem -Path $scriptFolder).BaseName
+        $instance.CheckStoredProcedures.Results +=  (Invoke-PSSQL @{
+            Session             =   Get-PSSession -Name $instance.HostName
+            SQLScriptFolder     =   $scriptFolder 
+            SQLScriptFile       =   $scriptFile
+            ConnectionParams    =   @{
+                InstanceName    =   $instanceName 
+                DatabaseName    =   $databaseName 
+            }
+        }).rows
+    }
+}
+
+# CHECK : Installed Features
+foreach($instance in $newHostList){
+    $instanceName = $instance.HostName
+    $databaseName = $instance.CheckInstalledFeatures.checkThisInstance.databaseName
+    if($instance.isNamedInstance -eq 'true'){
+        $instanceName = "{0}\{1}" -f $instance.HostName,$instance.InstanceName
+    }
+
+    Write-Host "[CHECK : Installed Features] - HostName: $($instance.HostName) - InstanceName: $instanceName" -ForegroundColor Cyan
+
+    foreach($finding in $instance.CheckInstalledFeatures.givenTheseFindings){
+        $scriptFolder   =   ("{0}{1}\" -f $instance.CheckInstalledFeatures.fromThisFolder,$finding.id)
+        $scriptFile     =   (Get-ChildItem -Path $scriptFolder).BaseName
+        $instance.CheckInstalledFeatures.Results +=  (Invoke-PSCMD @{
+            Session                 = @(Get-PSSession -Name $instance.HostName)
+            PowerShellScriptFolder  = $scriptFolder
+            PowerShellScriptFile    = $scriptFile
+            ArgumentList            = @($instance)
+            AsJob                   = $false
+        })
+    }
+}
+#$instance.CheckInstalledFeatures.Results  = $instance.CheckInstalledFeatures.Results | 
+#Select-Object -Property * -ExcludeProperty @("PSComputerName","RunspaceId")
 
 
-$Instances          = Get-SqlInstances
-$sqlRegistryPath    = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\"
+$newHostList.CheckConfig.Results | ft -a   
+$newHostList.CheckRegistryPermissions.Results | ft -a  
+$newHostList.CheckStoredProcedures.Results | ft -a
+$newHostList.CheckInstalledFeatures.Results | ft -a
+
+# here we pass is a session, but not as a job
+$results = Invoke-PSCMD @{
+    Session                 = @(Get-PSSession -Name $instance.HostName)
+    PowerShellScriptFolder  = $scriptFolder
+    PowerShellScriptFile    = $scriptFile
+    ArgumentList            = @($instance)
+    AsJob                   = $false
+};$results
+
 $registryPaths      = @{
     CPE = @{
         RelativePath    = ".\CPE"
@@ -222,15 +251,14 @@ $registryPaths      = @{
         )
     }
 }
-foreach($instance in $Instances){
-    if($instance.values.instance_type -eq 'unnamed'){
+foreach($instance in $newHostList){
+    if(-not($instance.isNamedInstance)){
         $registry_instance_ref = "MSSQLSERVER"
     }else{
-        $registry_instance_ref = $instance.values.instance_name
+        $registry_instance_ref = $instance.InstanceName
     }
-
     try{
-        Set-Location -path $sqlRegistryPath -ErrorAction Stop
+        Set-Location -path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\" -ErrorAction Stop
     }catch{
         $error[0]
     }
@@ -354,3 +382,5 @@ Why? This is the service account under which the SQL Server instance runs. Grant
 execute necessary binaries and scripts for SQL Server to operate. However, depending on your SQL Server setup, this account 
 might require more permissions, potentially even Full Control, if it's responsible for managing updates or configurations within 
 the Binn directory.
+
+RESTORE VERIFYONLY FROM DISK = '<backup_device>'
